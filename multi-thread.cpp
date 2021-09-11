@@ -76,12 +76,12 @@ void* KNN(void *params) {
                 }
             }
         }
-        // cout << "9" << endl;
+
         // Bincount the candidate labels and pick the most common
         for(int i = 0; i < k; i++) {
             classCounts[(int)candidates[2*i+1]] += 1;
         }
-        // cout << "10" << endl;
+
         int max = -1;
         int max_index = 0;
         for(int i = 0; i < num_classes;i++) {
@@ -166,6 +166,7 @@ int main(int argc, char *argv[]){
     
     struct arguments *params;
 
+    // Make threads with specific args for KNN function
     for(int i = 0; i < numThreads; i++) {
         params = (struct arguments*) malloc(sizeof(struct arguments));
 
