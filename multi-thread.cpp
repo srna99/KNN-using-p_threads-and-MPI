@@ -11,12 +11,16 @@
 
 using namespace std;
 
+// predictions is the array where you have to return the class predicted (integer) for the test dataset instances
+int* predictions;
+
 // Arguments for each thread with divided data
 struct arguments {
     ArffData* train;
     ArffData* test;
     int k;
-    int start, end;
+    int start; 
+    int end;
 };
 
 float distance(ArffInstance* a, ArffInstance* b) {
@@ -30,66 +34,73 @@ float distance(ArffInstance* a, ArffInstance* b) {
     return sum;
 }
 
-void* KNN(void *arg) {
-    // // Implements a sequential kNN where for each candidate query an in-place priority queue is maintained to identify the kNN's.
+void* KNN(void *params) {
+    // Implements a sequential kNN where for each candidate query an in-place priority queue is maintained to identify the kNN's.
 
-    // // predictions is the array where you have to return the class predicted (integer) for the test dataset instances
-    // int* predictions = (int*)malloc(test->num_instances() * sizeof(int));
+    struct arguments *args = (struct arguments*) params;
 
-    // // stores k-NN candidates for a query vector as a sorted 2d array. First element is inner product, second is class.
-    // float* candidates = (float*) calloc(k*2, sizeof(float));
-    // for(int i = 0; i < 2*k; i++){ candidates[i] = FLT_MAX; }
+    ArffData *train = args->train;
+    ArffData *test = args->test;
+    int k = args->k;
+    int start = args->start;
+    int end = args->end;
 
-    // int num_classes = train->num_classes();
+    // stores k-NN candidates for a query vector as a sorted 2d array. First element is inner product, second is class.
+    float* candidates = (float*) calloc(k*2, sizeof(float));
+    for(int i = 0; i < 2*k; i++){ candidates[i] = FLT_MAX; }
 
-    // // Stores bincounts of each class over the final set of candidate NN
-    // int* classCounts = (int*)calloc(num_classes, sizeof(int));
+    int num_classes = train->num_classes();
 
-    // for(int queryIndex = 0; queryIndex < test->num_instances(); queryIndex++) {
-    //     for(int keyIndex = 0; keyIndex < train->num_instances(); keyIndex++) {
-            
-    //         float dist = distance(test->get_instance(queryIndex), train->get_instance(keyIndex));
+    // Stores bincounts of each class over the final set of candidate NN
+    int* classCounts = (int*) calloc(num_classes, sizeof(int));
 
-    //         // Add to our candidates
-    //         for(int c = 0; c < k; c++){
-    //             if(dist < candidates[2*c]){
-    //                 // Found a new candidate
-    //                 // Shift previous candidates down by one
-    //                 for(int x = k-2; x >= c; x--) {
-    //                     candidates[2*x+2] = candidates[2*x];
-    //                     candidates[2*x+3] = candidates[2*x+1];
-    //                 }
+    for(int queryIndex = start; queryIndex < end; queryIndex++) {
+        for(int keyIndex = 0; keyIndex < train->num_instances(); keyIndex++) {
+            float dist = distance(test->get_instance(queryIndex), train->get_instance(keyIndex));
+
+            // Add to our candidates
+            for(int c = 0; c < k; c++) {
+                if(dist < candidates[2*c]) {
+                    // Found a new candidate
+                    // Shift previous candidates down by one
+                    for(int x = k-2; x >= c; x--) {
+                        candidates[2*x+2] = candidates[2*x];
+                        candidates[2*x+3] = candidates[2*x+1];
+                    }
                     
-    //                 // Set key vector as potential k NN
-    //                 candidates[2*c] = dist;
-    //                 candidates[2*c+1] = train->get_instance(keyIndex)->get(train->num_attributes() - 1)->operator float(); // class value
+                    // Set key vector as potential k NN
+                    candidates[2*c] = dist;
+                    candidates[2*c+1] = train->get_instance(keyIndex)->get(train->num_attributes() - 1)->operator float(); // class value
 
-    //                 break;
-    //             }
-    //         }
-    //     }
+                    break;
+                }
+            }
+        }
+        // cout << "9" << endl;
+        // Bincount the candidate labels and pick the most common
+        for(int i = 0; i < k; i++) {
+            classCounts[(int)candidates[2*i+1]] += 1;
+        }
+        // cout << "10" << endl;
+        int max = -1;
+        int max_index = 0;
+        for(int i = 0; i < num_classes;i++) {
+            if(classCounts[i] > max) {
+                max = classCounts[i];
+                max_index = i;
+            }
+        }
 
-    //     // Bincount the candidate labels and pick the most common
-    //     for(int i = 0; i < k;i++){
-    //         classCounts[(int)candidates[2*i+1]] += 1;
-    //     }
-        
-    //     int max = -1;
-    //     int max_index = 0;
-    //     for(int i = 0; i < num_classes;i++){
-    //         if(classCounts[i] > max){
-    //             max = classCounts[i];
-    //             max_index = i;
-    //         }
-    //     }
+        predictions[queryIndex] = max_index;
 
-    //     predictions[queryIndex] = max_index;
+        for(int i = 0; i < 2*k; i++) { 
+            candidates[i] = FLT_MAX; 
+        }
 
-    //     for(int i = 0; i < 2*k; i++){ candidates[i] = FLT_MAX; }
-    //     memset(classCounts, 0, num_classes * sizeof(int));
-    // }
-    
-    pthread_exit(NULL);
+        memset(classCounts, 0, num_classes * sizeof(int));
+    }
+
+    pthread_exit(0);
 }
 
 int* computeConfusionMatrix(int* predictions, ArffData* dataset)
@@ -141,22 +152,22 @@ int main(int argc, char *argv[]){
     ArffData *test = parserTest.parse();
 
     // Divide data per thread with leftover in last thread
-    int datasetSize = train->num_instances();
+    int datasetSize = test->num_instances();
     int dataPerThread = datasetSize / numThreads;
     int leftoverData = datasetSize % numThreads;
     int dataForLastThread = dataPerThread + leftoverData;
-
-    printf("%d, %d, %d, %d, %d\n", numThreads, datasetSize, dataPerThread, leftoverData, dataForLastThread);
     
-    int** predictions = (int**) malloc(numThreads * sizeof(int*));
+    predictions = (int*)malloc(test->num_instances() * sizeof(int));
     int dataStart = 0, dataEnd = 0;
 
     struct timespec start, end;
     
     clock_gettime(CLOCK_MONOTONIC_RAW, &start);
     
+    struct arguments *params;
+
     for(int i = 0; i < numThreads; i++) {
-        struct arguments *params = (struct arguments*) malloc(sizeof(struct arguments));
+        params = (struct arguments*) malloc(sizeof(struct arguments));
 
         if(i < numThreads - 1) {
             dataEnd = dataStart + dataPerThread;
@@ -164,37 +175,33 @@ int main(int argc, char *argv[]){
             dataEnd = dataStart + dataForLastThread;
         }
 
-        printf("%d, %d, %d\n", i, dataStart, dataEnd);
-
         params->train = train;
         params->test = test;
         params->k = k;
         params->start = dataStart;
         params->end = dataEnd;
 
-        pthread_create(&threads[i], NULL, KNN, &params);
+        pthread_create(&threads[i], NULL, KNN, (void*) params);
 
         dataStart = dataEnd;
     }
     
     for(int i = 0; i < numThreads; i++) {
         pthread_join(threads[i], NULL); 
-        // pthread_join(threads[i], (void*) &predictions[i]); 
     }
     
     clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 
     // Compute the confusion matrix
-    // int* confusionMatrix = computeConfusionMatrix(predictions, test);
-    // // Calculate the accuracy
-    // float accuracy = computeAccuracy(confusionMatrix, test);
+    int* confusionMatrix = computeConfusionMatrix(predictions, test);
+    // Calculate the accuracy
+    float accuracy = computeAccuracy(confusionMatrix, test);
 
     uint64_t diff = (1000000000L * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec) / 1e6;
 
-    // printf("The %i-NN classifier for %lu test instances on %lu train instances required %llu ms CPU time. Accuracy was %.4f\n", k, test->num_instances(), train->num_instances(), (long long unsigned int) diff, accuracy);
-
-    printf("The %i-NN classifier for %lu test instances on %lu train instances required %llu ms CPU time.\n", k, test->num_instances(), train->num_instances(), (long long unsigned int) diff);
+    printf("The %i-NN classifier for %lu test instances on %lu train instances required %llu ms CPU time. Accuracy was %.4f\n", k, test->num_instances(), train->num_instances(), (long long unsigned int) diff, accuracy);
 
     free(threads);
     free(predictions);
+    free(params);
 }
