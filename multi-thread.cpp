@@ -134,7 +134,7 @@ int main(int argc, char *argv[]){
 
     if(argc != 5)
     {
-        cout << "Usage: ./main datasets/train.arff datasets/test.arff k numThreads" << endl;
+        cout << "Usage: ./multi-thread datasets/train.arff datasets/test.arff k numThreads" << endl;
         exit(0);
     }
 
