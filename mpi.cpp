@@ -12,18 +12,6 @@
 
 using namespace std;
 
-// predictions is the array where you have to return the class predicted (integer) for the test dataset instances
-int* predictions;
-
-// Arguments for each thread with divided data
-struct arguments {
-    ArffData* train;
-    ArffData* test;
-    int k;
-    int start; 
-    int end;
-};
-
 float distance(ArffInstance* a, ArffInstance* b) {
     float sum = 0;
     
@@ -35,16 +23,11 @@ float distance(ArffInstance* a, ArffInstance* b) {
     return sum;
 }
 
-void* KNN(void *params) {
+int* KNN(ArffData* train, ArffData* test, int k, int start, int end) {
     // Implements a sequential kNN where for each candidate query an in-place priority queue is maintained to identify the kNN's.
 
-    struct arguments *args = (struct arguments*) params;
- 
-    ArffData *train = args->train;
-    ArffData *test = args->test;
-    int k = args->k;
-    int start = args->start;
-    int end = args->end;
+    // predictions is the array where you have to return the class predicted (integer) for the test dataset instances
+    int* predictions = (int*)malloc(test->num_instances() * sizeof(int));
 
     // stores k-NN candidates for a query vector as a sorted 2d array. First element is inner product, second is class.
     float* candidates = (float*) calloc(k*2, sizeof(float));
@@ -101,7 +84,7 @@ void* KNN(void *params) {
         memset(classCounts, 0, num_classes * sizeof(int));
     }
 
-    pthread_exit(0);
+    return predictions;
 }
 
 int* computeConfusionMatrix(int* predictions, ArffData* dataset)
@@ -139,69 +122,94 @@ int main(int argc, char *argv[]){
         exit(0);
     }
 
+    int worldRank, worldSize;
+
     MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &worldRank);
+    MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
 
     int k = strtol(argv[3], NULL, 10);
-    
+
     // Open the datasets
     ArffParser parserTrain(argv[1]);
     ArffParser parserTest(argv[2]);
     ArffData *train = parserTrain.parse();
     ArffData *test = parserTest.parse();
 
-    // // Divide data per thread with leftover in last thread
-    // int datasetSize = test->num_instances();
-    // int dataPerThread = datasetSize / numThreads;
-    // int leftoverData = datasetSize % numThreads;
-    // int dataForLastThread = dataPerThread + leftoverData;
+    // Divide data per process with leftover in last process
+    int datasetSize = test->num_instances();
+    int dataPerProcess = datasetSize / worldSize;
+    int leftoverData = datasetSize % worldSize;
+    int dataForLastProcess = dataPerProcess + leftoverData;
     
-    // predictions = (int*)malloc(test->num_instances() * sizeof(int));
-    // int dataStart = 0, dataEnd = 0;
+    // predictions = (int*) malloc(test->num_instances() * sizeof(int));
+    int dataStart = 0, dataEnd = 0;
 
-    // struct timespec start, end;
+    int scatterSendBuffer[worldSize][2];
+    int scatterRecvBuffer[2];
+
+    struct timespec start, end;
+
+    if(worldRank == 0) {
+        // clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+
+        for(int i = 0; i < worldSize; i++) {
+            if(i < worldSize - 1) {
+                dataEnd = dataStart + dataPerProcess;
+            } else {
+                dataEnd = dataStart + dataForLastProcess;
+            }
+
+            scatterSendBuffer[i][0] = dataStart;
+            scatterSendBuffer[i][1] = dataEnd;
+
+            printf("(%d, %d, %d)", i, scatterSendBuffer[i][0], scatterSendBuffer[i][1]);
+
+            dataStart = dataEnd;
+        }
+    }
+
+    MPI_Scatter(scatterSendBuffer, 2, MPI_INT, scatterRecvBuffer, 2, MPI_INT, 0, MPI_COMM_WORLD);
+
+    printf("\n[%d, %d, %d]", worldRank, scatterRecvBuffer[0], scatterRecvBuffer[1]);
+
+    int* subPredictions = KNN(train, test, k, scatterRecvBuffer[0], scatterRecvBuffer[1]);
+
+    printf("\n{%d, %d}", worldRank, subPredictions[0]);
+
+    int* predictions = (worldRank == 0) ? (int*) malloc(datasetSize * sizeof(int)) : NULL;
+
+    int gatherSendCount = (worldRank != worldSize - 1) ? dataPerProcess : dataForLastProcess;
+    int* gatherRecvCounts = (int*) malloc(worldSize * sizeof(int));
+    int* gatherRecvDisplacements = (int*) malloc(worldSize * sizeof(int));
     
-    // clock_gettime(CLOCK_MONOTONIC_RAW, &start);
+    for(int i = 0; i < worldSize; i++) {
+        gatherRecvCounts[i] = (worldRank != worldSize - 1) ? dataPerProcess : dataForLastProcess;
+        gatherRecvDisplacements[i] = i * dataPerProcess;
+    }
+
+    MPI_Gatherv(subPredictions, gatherSendCount, MPI_INT, predictions, gatherRecvCounts, gatherRecvDisplacements, MPI_INT, 0, MPI_COMM_WORLD);
     
-    // struct arguments *params;
+    if(worldRank == 0) {
+        // clock_gettime(CLOCK_MONOTONIC_RAW, &end);
 
-    // // Make threads with specific args for KNN function
-    // for(int i = 0; i < numThreads; i++) {
-    //     params = (struct arguments*) malloc(sizeof(struct arguments));
+        for(int i = 0; i < worldSize; i++) {
+            printf("\n*%d*", predictions[gatherRecvDisplacements[i]]);
+        }
 
-    //     if(i < numThreads - 1) {
-    //         dataEnd = dataStart + dataPerThread;
-    //     } else {
-    //         dataEnd = dataStart + dataForLastThread;
-    //     }
+        // // Compute the confusion matrix
+        // int* confusionMatrix = computeConfusionMatrix(predictions, test);
+        // // Calculate the accuracy
+        // float accuracy = computeAccuracy(confusionMatrix, test);
 
-    //     params->train = train;
-    //     params->test = test;
-    //     params->k = k;
-    //     params->start = dataStart;
-    //     params->end = dataEnd;
+        // uint64_t diff = (1000000000L * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec) / 1e6;
 
-    //     pthread_create(&threads[i], NULL, KNN, (void*) params);
-
-    //     dataStart = dataEnd;
-    // }
-    
-    // for(int i = 0; i < numThreads; i++) {
-    //     pthread_join(threads[i], NULL); 
-    // }
-    
-    // clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-
-    // // Compute the confusion matrix
-    // int* confusionMatrix = computeConfusionMatrix(predictions, test);
-    // // Calculate the accuracy
-    // float accuracy = computeAccuracy(confusionMatrix, test);
-
-    // uint64_t diff = (1000000000L * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec) / 1e6;
-
-    // printf("The %i-NN classifier for %lu test instances on %lu train instances required %llu ms CPU time. Accuracy was %.4f\n", k, test->num_instances(), train->num_instances(), (long long unsigned int) diff, accuracy);
-
-    // free(predictions);
-    // free(params);
+        // printf("The %i-NN classifier for %lu test instances on %lu train instances required %llu ms CPU time. Accuracy was %.4f\n", k, test->num_instances(), train->num_instances(), (long long unsigned int) diff, accuracy);
+    }
 
     MPI_Finalize();
+
+    if(worldRank == 0) { free(predictions); }
+    free(gatherRecvCounts);
+    free(gatherRecvDisplacements);
 }

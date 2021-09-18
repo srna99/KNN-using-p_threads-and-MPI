@@ -157,7 +157,7 @@ int main(int argc, char *argv[]){
     int leftoverData = datasetSize % numThreads;
     int dataForLastThread = dataPerThread + leftoverData;
     
-    predictions = (int*)malloc(test->num_instances() * sizeof(int));
+    predictions = (int*) malloc(test->num_instances() * sizeof(int));
     int dataStart = 0, dataEnd = 0;
 
     struct timespec start, end;
