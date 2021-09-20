@@ -77,7 +77,6 @@ int* KNN(ArffData* train, ArffData* test, int k, int start, int end) {
         }
 
         predictions[predictionIndex] = max_index;
-        // printf("\n{%d. %d}", queryIndex, max_index);
         predictionIndex += 1;
 
         for(int i = 0; i < 2*k; i++) { 
@@ -147,10 +146,7 @@ int main(int argc, char *argv[]){
     
     int* predictions = (worldRank == 0) ? (int*) malloc(datasetSize * sizeof(int)) : NULL;
     int* subPredictions = NULL;
-    // int assignedIndices[worldSize][2];
-    // int recvIndices[2];
     int dataStart = 0, dataEnd = 0;
-    // int sendCount;
 
     int scatterSendBuffer[worldSize][2];
     int scatterRecvBuffer[2];
@@ -167,103 +163,16 @@ int main(int argc, char *argv[]){
                 dataEnd = dataStart + dataForLastProcess;
             }
 
-            // assignedIndices[i][0] = dataStart;
-            // assignedIndices[i][1] = dataEnd;
-
-            // if(i != 0) {
-            //     MPI_Send(&assignedIndices[i], 2, MPI_INT, i, tag, MPI_COMM_WORLD);
-            // }
-
-            // printf("\n(%d, %d, %d)", i, assignedIndices[i][0], assignedIndices[i][1]);
-
             scatterSendBuffer[i][0] = dataStart;
             scatterSendBuffer[i][1] = dataEnd;
 
-            printf("\n(%d, %d, %d)", i, scatterSendBuffer[i][0], scatterSendBuffer[i][1]);
-
             dataStart = dataEnd;
         }
-
-        // subPredictions = KNN(train, test, k, assignedIndices[0][0], assignedIndices[0][1]);
-
-        // int* gatherRecvCounts = (int*) malloc(worldSize * sizeof(int));
-        // int* gatherRecvDisplacements = (int*) malloc(worldSize * sizeof(int));
-
-        // for(int i = 0; i < worldSize; i++) {
-        //     gatherRecvCounts[i] = (i != worldSize - 1) ? dataPerProcess : dataForLastProcess;
-        //     gatherRecvDisplacements[i] = i * dataPerProcess;
-        // }
-
-        // for(int i = 0; i < gatherRecvCounts[0]; i++) {
-        //     predictions[i] = subPredictions[i];
-        // }
-
-        // int recvCount, recvDisplacement;
-
-        // for(int i = 1; i < worldSize; i++) {
-        //     recvCount = gatherRecvCounts[i];
-        //     recvDisplacement = gatherRecvDisplacements[i];
-        //     int tempPredictions[recvCount];
-
-        //     printf("\n[%d, %d, %d]", i, recvCount, recvDisplacement);
-
-        //     MPI_Recv(tempPredictions, recvCount, MPI_INT, i, tag, MPI_COMM_WORLD, &stat);
-
-        //     for(int j = 0; j < recvCount; j++) {
-        //         predictions[recvDisplacement + j] = tempPredictions[j];
-        //         printf("\n%d. %d, %d, %d (all)", i, recvDisplacement + j, predictions[recvDisplacement + j], tempPredictions[j]);
-        //     }
-        // }
-
-        // clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-
-        // // printf("6");
-
-        // // for(int i = 0; i < 80; i++) {
-        // //     printf("\n%d. %d (all)", i, predictions[i]);
-        // // }
-
-        // // Compute the confusion matrix
-        // int* confusionMatrix = computeConfusionMatrix(predictions, test);
-        // // Calculate the accuracy
-        // float accuracy = computeAccuracy(confusionMatrix, test);
-
-        // uint64_t diff = (1000000000L * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec) / 1e6;
-
-        // printf("The %i-NN classifier for %lu test instances on %lu train instances required %llu ms CPU time. Accuracy was %.4f\n", k, test->num_instances(), train->num_instances(), (long long unsigned int) diff, accuracy);
-
-        // free(predictions);
-        // free(gatherRecvCounts);
-        // free(gatherRecvDisplacements);
-        
     } 
-    // else {
-    //     MPI_Recv(recvIndices, 2, MPI_INT, 0, tag, MPI_COMM_WORLD, &stat);
-
-    //     subPredictions = KNN(train, test, k, recvIndices[0], recvIndices[1]);
-
-    //     sendCount = (worldRank != worldSize - 1) ? dataPerProcess : dataForLastProcess;
-
-    //     MPI_Send(subPredictions, sendCount, MPI_INT, 0, tag, MPI_COMM_WORLD);
-    // }
-
-    // for(int i = 0; i < sendCount; i++) {
-    //     printf("\n%d. %d, %d (sub)", i, worldRank, subPredictions[i]);
-    // }
-
-    // printf("1");
 
     MPI_Scatter(scatterSendBuffer, 2, MPI_INT, scatterRecvBuffer, 2, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // printf("2");
-
     subPredictions = KNN(train, test, k, scatterRecvBuffer[0], scatterRecvBuffer[1]);
-
-    // for(int i = 0; i < scatterRecvBuffer[1]-scatterRecvBuffer[0]; i++) {
-    //     printf("\n%d. %d, %d (sub)", i, worldRank, subPredictions[i]);
-    // }
-
-    // printf("3");
 
     int gatherSendCount = (worldRank != worldSize - 1) ? dataPerProcess : dataForLastProcess;
     int* gatherRecvCounts = (int*) malloc(worldSize * sizeof(int));
@@ -274,22 +183,10 @@ int main(int argc, char *argv[]){
         gatherRecvDisplacements[i] = i * dataPerProcess;
     }
 
-    // printf("4");
-
-    // printf("\n[%d, %d, %d, %d]", worldRank, gatherSendCount, gatherRecvCounts[worldRank], gatherRecvDisplacements[worldRank]);
-
     MPI_Gatherv(subPredictions, gatherSendCount, MPI_INT, predictions, gatherRecvCounts, gatherRecvDisplacements, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // printf("5");
-    
     if(worldRank == 0) {
         clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-
-        // printf("6");
-
-        for(int i = 0; i < 80; i++) {
-            printf("\n%d. %d (all)", i, predictions[i]);
-        }
 
         // Compute the confusion matrix
         int* confusionMatrix = computeConfusionMatrix(predictions, test);
